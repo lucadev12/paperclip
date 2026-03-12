@@ -21,6 +21,7 @@ import { useDialog } from "../context/DialogContext";
 import { cn } from "../lib/utils";
 import { queryKeys } from "../lib/queryKeys";
 import { sidebarBadgesApi } from "../api/sidebarBadges";
+import { ApiError } from "../api/client";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useLocation, useNavigate } from "@/lib/router";
 import {
@@ -173,10 +174,18 @@ export function CompanyRail() {
     })),
   });
   const sidebarBadgeQueries = useQueries({
-    queries: companyIds.map((companyId) => ({
+    queries: companyIds.filter(Boolean).map((companyId) => ({
       queryKey: queryKeys.sidebarBadges(companyId),
       queryFn: () => sidebarBadgesApi.get(companyId),
-      refetchInterval: 15_000,
+      refetchInterval: (query: { state: { error: unknown } }) => {
+        const err = query.state.error;
+        if (err && err instanceof ApiError && err.status === 404) return false;
+        return 15_000;
+      },
+      retry: (failureCount: number, error: unknown) => {
+        if (error instanceof ApiError && error.status === 404) return false;
+        return failureCount < 3;
+      },
     })),
   });
   const hasLiveAgentsByCompanyId = useMemo(() => {
