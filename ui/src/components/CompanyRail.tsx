@@ -167,10 +167,18 @@ export function CompanyRail() {
   const companyIds = useMemo(() => sidebarCompanies.map((company) => company.id), [sidebarCompanies]);
 
   const liveRunsQueries = useQueries({
-    queries: companyIds.map((companyId) => ({
+    queries: companyIds.filter(Boolean).map((companyId) => ({
       queryKey: queryKeys.liveRuns(companyId),
       queryFn: () => heartbeatsApi.liveRunsForCompany(companyId),
-      refetchInterval: 10_000,
+      refetchInterval: (query: { state: { error: unknown } }) => {
+        const err = query.state.error;
+        if (err && err instanceof ApiError && err.status === 404) return false;
+        return 10_000;
+      },
+      retry: (failureCount: number, error: unknown) => {
+        if (error instanceof ApiError && error.status === 404) return false;
+        return failureCount < 3;
+      },
     })),
   });
   const sidebarBadgeQueries = useQueries({
