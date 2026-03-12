@@ -166,15 +166,31 @@ export function CompanyRail() {
   );
   const companyIds = useMemo(() => sidebarCompanies.map((company) => company.id), [sidebarCompanies]);
 
+  // Track company IDs that returned 404 so we permanently stop all polling
+  // for them — including refetches triggered by query invalidation.
+  const [gone404, setGone404] = useState<Set<string>>(() => new Set());
+  const markGone = useCallback((id: string) => {
+    setGone404((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
   const liveRunsQueries = useQueries({
-    queries: companyIds.filter(Boolean).map((companyId) => ({
+    queries: companyIds.map((companyId) => ({
       queryKey: queryKeys.liveRuns(companyId),
-      queryFn: () => heartbeatsApi.liveRunsForCompany(companyId),
-      refetchInterval: (query: { state: { error: unknown } }) => {
-        const err = query.state.error;
-        if (err && err instanceof ApiError && err.status === 404) return false;
-        return 10_000;
+      queryFn: async () => {
+        try {
+          return await heartbeatsApi.liveRunsForCompany(companyId);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) markGone(companyId);
+          throw err;
+        }
       },
+      enabled: !!companyId && !gone404.has(companyId),
+      refetchInterval: 10_000,
       retry: (failureCount: number, error: unknown) => {
         if (error instanceof ApiError && error.status === 404) return false;
         return failureCount < 3;
@@ -182,14 +198,18 @@ export function CompanyRail() {
     })),
   });
   const sidebarBadgeQueries = useQueries({
-    queries: companyIds.filter(Boolean).map((companyId) => ({
+    queries: companyIds.map((companyId) => ({
       queryKey: queryKeys.sidebarBadges(companyId),
-      queryFn: () => sidebarBadgesApi.get(companyId),
-      refetchInterval: (query: { state: { error: unknown } }) => {
-        const err = query.state.error;
-        if (err && err instanceof ApiError && err.status === 404) return false;
-        return 15_000;
+      queryFn: async () => {
+        try {
+          return await sidebarBadgesApi.get(companyId);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) markGone(companyId);
+          throw err;
+        }
       },
+      enabled: !!companyId && !gone404.has(companyId),
+      refetchInterval: 15_000,
       retry: (failureCount: number, error: unknown) => {
         if (error instanceof ApiError && error.status === 404) return false;
         return failureCount < 3;
